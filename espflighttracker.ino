@@ -612,30 +612,50 @@ void drawFlightInfo(int x, int y, FlightInfo& flight) {
   }
   tft.drawString(flightStr, x, y);
   
-  // Route with cities if available
+  // Route with airport codes first, then cities in parentheses
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   String routeStr = "";
   if (flight.origin.length() > 0) {
+    // Format: KBOS (Boston)
     routeStr = flight.origin;
     if (flight.originCity.length() > 0) {
-      routeStr += " (" + flight.originCity + ")";
+      // Extract just the city name if it contains comma (e.g., "Boston, MA" -> "Boston")
+      String cityName = flight.originCity;
+      int commaPos = cityName.indexOf(',');
+      if (commaPos > 0) {
+        cityName = cityName.substring(0, commaPos);
+      }
+      routeStr += " (" + cityName + ")";
     }
+    
     if (flight.destination.length() > 0) {
       routeStr += " -> " + flight.destination;
       if (flight.destinationCity.length() > 0) {
-        routeStr += " (" + flight.destinationCity + ")";
+        // Extract just the city name
+        String destCity = flight.destinationCity;
+        int commaPos = destCity.indexOf(',');
+        if (commaPos > 0) {
+          destCity = destCity.substring(0, commaPos);
+        }
+        routeStr += " (" + destCity + ")";
       }
     }
   } else if (flight.destination.length() > 0) {
     routeStr = "To: " + flight.destination;
     if (flight.destinationCity.length() > 0) {
-      routeStr += " (" + flight.destinationCity + ")";
+      // Extract just the city name
+      String destCity = flight.destinationCity;
+      int commaPos = destCity.indexOf(',');
+      if (commaPos > 0) {
+        destCity = destCity.substring(0, commaPos);
+      }
+      routeStr += " (" + destCity + ")";
     }
   }
   
-  // Truncate if too long for screen
-  if (routeStr.length() > 40) {
-    // Show just airport codes
+  // Truncate if too long for screen (320 pixels wide, ~6 pixels per char)
+  if (routeStr.length() > 50) {
+    // Show abbreviated format: KBOS -> KLAX
     routeStr = flight.origin + " -> " + flight.destination;
   }
   
@@ -646,7 +666,21 @@ void drawFlightInfo(int x, int y, FlightInfo& flight) {
   // Aircraft type, altitude and distance
   String infoStr = "";
   if (flight.aircraft.length() > 0) {
-    infoStr = flight.aircraft + " | ";
+    // Shorten aircraft type if needed (e.g., "Boeing 737-800" -> "B738")
+    String aircraft = flight.aircraft;
+    if (aircraft.length() > 8) {
+      // Try to extract just the model number
+      if (aircraft.startsWith("Boeing 737")) aircraft = "B737";
+      else if (aircraft.startsWith("Boeing 747")) aircraft = "B747";
+      else if (aircraft.startsWith("Boeing 757")) aircraft = "B757";
+      else if (aircraft.startsWith("Boeing 767")) aircraft = "B767";
+      else if (aircraft.startsWith("Boeing 777")) aircraft = "B777";
+      else if (aircraft.startsWith("Boeing 787")) aircraft = "B787";
+      else if (aircraft.startsWith("Airbus A3")) aircraft = aircraft.substring(7, 11);
+      else if (aircraft.startsWith("Airbus")) aircraft = aircraft.substring(7);
+      else aircraft = aircraft.substring(0, 8);
+    }
+    infoStr = aircraft + " | ";
   }
   infoStr += String((int)flight.altitude) + "ft | ";
   infoStr += String(flight.distance, 1) + "km";
@@ -744,6 +778,9 @@ void updateTime() {
 void updateWeather() {
   if (weatherAPIKey.length() == 0) return;
   
+  // Turn on red LED to indicate API call
+  digitalWrite(RGB_LED_R, LOW);  // Active LOW on Type-C variant
+  
   HTTPClient http;
   String url = "http://api.openweathermap.org/data/2.5/weather?";
   url += "lat=" + String(latitude);
@@ -770,15 +807,24 @@ void updateWeather() {
   }
   
   http.end();
+  
+  // Blink red LED off after API call
+  delay(100);
+  digitalWrite(RGB_LED_R, HIGH);  // Active LOW on Type-C variant
 }
 
 void updateFlights() {
   if (flightAwareAPIKey.length() == 0) {
     Serial.println("No FlightAware API key configured");
+    // Fall back to OpenSky
+    updateFlightsOpenSky();
     return;
   }
   
   Serial.println("Fetching flight data from FlightAware...");
+  
+  // Turn on red LED to indicate API call
+  digitalWrite(RGB_LED_R, LOW);  // Active LOW on Type-C variant
   
   HTTPClient http;
   
@@ -805,11 +851,18 @@ void updateFlights() {
   }
   
   http.end();
+  
+  // Blink red LED off after API call
+  delay(100);
+  digitalWrite(RGB_LED_R, HIGH);  // Active LOW on Type-C variant
 }
 
 void updateFlightsOpenSky() {
   // Fallback to OpenSky Network free API
   Serial.println("Falling back to OpenSky Network...");
+  
+  // Turn on red LED to indicate API call
+  digitalWrite(RGB_LED_R, LOW);  // Active LOW on Type-C variant
   
   HTTPClient http;
   
@@ -835,6 +888,10 @@ void updateFlightsOpenSky() {
   }
   
   http.end();
+  
+  // Blink red LED off after API call
+  delay(100);
+  digitalWrite(RGB_LED_R, HIGH);  // Active LOW on Type-C variant
 }
 
 void parseFlightAwareData(String json) {
