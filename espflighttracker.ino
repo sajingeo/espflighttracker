@@ -182,6 +182,7 @@ void handleRoot();
 void handleSave();
 void handleReset();
 String getConfigHTML();
+String htmlEncode(String str);
 
 void setup() {
   Serial.begin(115200);
@@ -192,22 +193,6 @@ void setup() {
   
   // Initialize touch
   setupTouch();
-  
-  // Initialize SD card with custom SPI configuration
-  Serial.println("Initializing SD card...");
-  SPI.end(); // End default SPI first
-  SPI.begin(18, 19, 23, 5); // SCK, MISO, MOSI, SS for SD card
-  
-  if (SD.begin(SD_CS, SPI, 1000000)) { // 1MHz for compatibility
-    Serial.println("SD Card initialized successfully");
-  } else {
-    Serial.println("SD Card initialization failed!");
-    Serial.println("  - Check card is formatted as FAT32");
-    Serial.println("  - Card should be 32GB or smaller");
-  }
-  
-  // Restore default SPI for display/touch
-  SPI.begin(14, 12, 13, 15); // SCK, MISO, MOSI, SS for display
   
   // Initialize RGB LED (Type-C variant on GPIO 4)
   pinMode(RGB_LED_R, OUTPUT);
@@ -425,14 +410,49 @@ void drawAPModeScreen() {
 
 void connectToWiFi() {
   Serial.println("Connecting to WiFi...");
+  Serial.println("SSID: " + wifiSSID);
+  Serial.println("Password length: " + String(wifiPassword.length()));
+  
+  // Disconnect any existing connection
+  WiFi.disconnect(true);
+  delay(100);
+  
   WiFi.mode(WIFI_STA);
+  
+  // Enable WPA3 support if available (ESP32 2.0.0+)
+  // This allows connection to WPA3 networks while maintaining WPA2 compatibility
+  WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);  // Allow WPA, WPA2, and WPA3
+  
+  // Handle SSIDs with spaces or special characters
+  // The SSID and password are already strings, so they should handle spaces correctly
   WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
   
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {  // Increased timeout for WPA3
     delay(500);
     Serial.print(".");
     attempts++;
+    
+    // Print status every 10 attempts
+    if (attempts % 10 == 0) {
+      Serial.print(" Status: ");
+      switch(WiFi.status()) {
+        case WL_NO_SSID_AVAIL:
+          Serial.println("SSID not found");
+          break;
+        case WL_CONNECT_FAILED:
+          Serial.println("Connection failed");
+          break;
+        case WL_CONNECTION_LOST:
+          Serial.println("Connection lost");
+          break;
+        case WL_DISCONNECTED:
+          Serial.println("Disconnected");
+          break;
+        default:
+          Serial.println(WiFi.status());
+      }
+    }
     
     // Show connecting status
     tft.fillScreen(TFT_BLACK);
@@ -1109,7 +1129,7 @@ void handleRoot() {
 }
 
 void handleSave() {
-  // Get form data
+  // Get form data - server.arg() automatically handles URL decoding
   userName = server.arg("userName");
   wifiSSID = server.arg("wifiSSID");
   wifiPassword = server.arg("wifiPassword");
@@ -1118,6 +1138,12 @@ void handleSave() {
   latitude = server.arg("latitude").toFloat();
   longitude = server.arg("longitude").toFloat();
   locationName = server.arg("location");
+  
+  // Debug output
+  Serial.println("Saving configuration:");
+  Serial.println("SSID: " + wifiSSID);
+  Serial.println("Password length: " + String(wifiPassword.length()));
+  Serial.println("Location: " + locationName);
   
   // Save configuration
   saveConfiguration();
@@ -1131,7 +1157,7 @@ void handleSave() {
   html += "border-radius:5px;font-size:16px;cursor:pointer;margin:10px;}";
   html += "</style></head><body>";
   html += "<h1>Configuration Saved!</h1>";
-  html += "<p class='success'>✓ Settings saved successfully</p>";
+  html += "<p class='success'>Settings saved successfully</p>";
   html += "<p>The device will restart and connect to your WiFi network.</p>";
   html += "<button class='btn' onclick='window.location=\"/\"'>Back to Settings</button>";
   html += "<script>setTimeout(function(){location.href='/';},5000);</script>";
@@ -1199,12 +1225,12 @@ String getConfigHTML() {
   html += "<div class='container'>";
   html += "<h1>✈️ Flight Tracker Configuration</h1>";
   
-  html += "<form action='/save' method='POST'>";
+  html += "<form action='/save' method='POST' accept-charset='UTF-8'>";
   
   // Personal Settings
   html += "<div class='form-group'>";
   html += "<label for='userName'>Your Name</label>";
-  html += "<input type='text' id='userName' name='userName' value='" + userName + "' required>";
+  html += "<input type='text' id='userName' name='userName' value='" + htmlEncode(userName) + "' required>";
   html += "<div class='help-text'>Used for personalized greeting</div>";
   html += "</div>";
   
@@ -1213,12 +1239,14 @@ String getConfigHTML() {
   html += "<h2>WiFi Settings</h2>";
   html += "<div class='form-group'>";
   html += "<label for='wifiSSID'>WiFi Network Name (SSID)</label>";
-  html += "<input type='text' id='wifiSSID' name='wifiSSID' value='" + wifiSSID + "' required>";
+  html += "<input type='text' id='wifiSSID' name='wifiSSID' value='" + htmlEncode(wifiSSID) + "' required>";
+  html += "<div class='help-text'>Supports spaces and special characters</div>";
   html += "</div>";
   
   html += "<div class='form-group'>";
   html += "<label for='wifiPassword'>WiFi Password</label>";
-  html += "<input type='password' id='wifiPassword' name='wifiPassword' value='" + wifiPassword + "' required>";
+  html += "<input type='text' id='wifiPassword' name='wifiPassword' value='" + htmlEncode(wifiPassword) + "' required>";
+  html += "<div class='help-text'>Supports WPA2/WPA3 networks</div>";
   html += "</div>";
   html += "</div>";
   
@@ -1227,7 +1255,7 @@ String getConfigHTML() {
   html += "<h2>Location Settings</h2>";
   html += "<div class='form-group'>";
   html += "<label for='location'>Location Name</label>";
-  html += "<input type='text' id='location' name='location' value='" + locationName + "' placeholder='e.g., Boston, MA' required>";
+  html += "<input type='text' id='location' name='location' value='" + htmlEncode(locationName) + "' placeholder='e.g., Boston, MA' required>";
   html += "</div>";
   
   html += "<div class='form-group'>";
@@ -1247,13 +1275,13 @@ String getConfigHTML() {
   html += "<h2>API Settings</h2>";
   html += "<div class='form-group'>";
   html += "<label for='weatherKey'>OpenWeatherMap API Key</label>";
-  html += "<input type='text' id='weatherKey' name='weatherKey' value='" + weatherAPIKey + "'>";
+  html += "<input type='text' id='weatherKey' name='weatherKey' value='" + htmlEncode(weatherAPIKey) + "'>";
   html += "<div class='help-text'>Get from openweathermap.org (free tier available)</div>";
   html += "</div>";
   
   html += "<div class='form-group'>";
   html += "<label for='flightKey'>FlightAware API Key</label>";
-  html += "<input type='text' id='flightKey' name='flightKey' value='" + flightAwareAPIKey + "'>";
+  html += "<input type='text' id='flightKey' name='flightKey' value='" + htmlEncode(flightAwareAPIKey) + "'>";
   html += "<div class='help-text'>Get from flightaware.com/aeroapi (provides flight origin/destination)</div>";
   html += "</div>";
   html += "</div>";
@@ -1310,4 +1338,15 @@ String getConfigHTML() {
   html += "</body></html>";
   
   return html;
+}
+
+// HTML encode function to handle special characters in form inputs
+String htmlEncode(String str) {
+  String encoded = str;
+  encoded.replace("&", "&amp;");
+  encoded.replace("\"", "&quot;");
+  encoded.replace("'", "&#39;");
+  encoded.replace("<", "&lt;");
+  encoded.replace(">", "&gt;");
+  return encoded;
 }
