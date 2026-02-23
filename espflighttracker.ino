@@ -64,7 +64,6 @@
 #include <time.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <SD.h>
 
 // ==========================================
 // Hardware Pin Definitions
@@ -418,17 +417,10 @@ void connectToWiFi() {
   delay(100);
   
   WiFi.mode(WIFI_STA);
-  
-  // Enable WPA3 support if available (ESP32 2.0.0+)
-  // This allows connection to WPA3 networks while maintaining WPA2 compatibility
-  WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);  // Allow WPA, WPA2, and WPA3
-  
-  // Handle SSIDs with spaces or special characters
-  // The SSID and password are already strings, so they should handle spaces correctly
   WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
   
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {  // Increased timeout for WPA3
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {  // 20 seconds timeout
     delay(500);
     Serial.print(".");
     attempts++;
@@ -450,11 +442,11 @@ void connectToWiFi() {
           Serial.println("Disconnected");
           break;
         default:
-          Serial.println(WiFi.status());
+          Serial.println("Status code: " + String(WiFi.status()));
       }
     }
     
-    // Show connecting status
+    // Show connecting status on display
     tft.fillScreen(TFT_BLACK);
     tft.setTextSize(2);
     tft.setTextColor(TFT_WHITE);
@@ -1139,10 +1131,18 @@ void handleSave() {
   longitude = server.arg("longitude").toFloat();
   locationName = server.arg("location");
   
+  // Normalize smart quotes to regular ASCII characters
+  wifiSSID.replace("\u2019", "'");  // Replace right single quotation mark with apostrophe
+  wifiSSID.replace("\u2018", "'");  // Replace left single quotation mark with apostrophe
+  // For double quotes, use char arrays to avoid escape issues
+  char smartLeft[] = {0xE2, 0x80, 0x9C, 0};  // Left double quote
+  char smartRight[] = {0xE2, 0x80, 0x9D, 0}; // Right double quote
+  wifiSSID.replace(smartLeft, "\"");
+  wifiSSID.replace(smartRight, "\"");
+  
   // Debug output
   Serial.println("Saving configuration:");
   Serial.println("SSID: " + wifiSSID);
-  Serial.println("Password length: " + String(wifiPassword.length()));
   Serial.println("Location: " + locationName);
   
   // Save configuration
